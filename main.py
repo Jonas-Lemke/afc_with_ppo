@@ -8,7 +8,9 @@ import torch
 from torch import optim
 # from torch.utils.tensorboard import SummaryWriter
 
-from ppo.network import ActorCriticNetwork
+# from ppo.network import ActorCriticNetwork
+from ppo.network import ActorNetwork
+from ppo.network import CriticNetwork
 from ppo.environment import WindTunnelEnv
 from ppo.training import PPOTraining
 
@@ -18,19 +20,18 @@ from utils import write_file
 
 # from tests.test_environments.test_env_01 import TestEnv01  # environment to test ppo implementation
 # from tests.test_environments.test_env_02 import TestEnv02  # environment to test ppo implementation
-# from tests.test_environments.test_env_03 import TestEnv03  # environment to test ppo implementation
+from tests.test_environments.test_env_03 import TestEnv03  # environment to test ppo implementation
 # from tests.test_environments.test_env_04 import TestEnv04  # environment to test ppo implementation
 
 ### Parameter Configuration ###
 
 HIDDEN_SIZE         = 64        # Number of neurons in hidden layer in NN
-LEARNING_RATE       = 1e-3      # Learning rate for adam optimizer
+LEARNING_RATE       = 1e-4      # Learning rate for adam optimizer
 GAMMA               = 0.99      # Discount factor to calculate returns
 GAE_LAMBDA          = 0.95      # Smoothing factor for GAE (high = more accuracy and dependence on future rewards; lower = less variance but higher bias and dependence on immediate rewards)
 EPSILON_CLIP        = 0.2       # Used to clip the ratio between new and old policy
-CRITIC_DISCOUNT     = 0.01      # Used to scale down critic loss (critic loss is bigger than the actor loss and needs to be scaled down)
-ENTROPY_BETA        = 0.0005      # Amount of importance given to the entropy bonus (low = stronger exploitation; high = stronger exploration)
-PPO_STEPS           = 128        # Number of transitions sampled for each training iteration = batch_size (should be multiple of MINI_BATCH_SIZE)
+ENTROPY_BETA        = 0.001      # Amount of importance given to the entropy bonus (low = stronger exploitation; high = stronger exploration)
+PPO_STEPS           = 32        # Number of transitions sampled for each training iteration = batch_size (should be multiple of MINI_BATCH_SIZE)
 MINI_BATCH_SIZE     = 4         # Number of samples which are randomly selected from total amount of stored data
 PPO_UPDATE_EPOCHS   = 4         # Number of pass over entire batch of training data
 PPO_TRAIN_EPOCHS    = 5000    # Limit epochs for the PPO training loop
@@ -44,7 +45,8 @@ PARAMS_FILE         = "parameter.txt"
 BATCH_FILE          = "batch_data.txt"
 UPDATE_FILE         = "update_data.txt"
 
-MODEL_LOAD_PATH     = "./logs/run_2025_02_14_13_25_52/model_checkpoints/epoch_2000_torch_model"
+MODEL_LOAD_PATH_ACTOR   = "./logs/run_2025_03_13_14_59_28/model_checkpoints/epoch_500_torch_actor_model"
+MODEL_LOAD_PATH_CRITIC  = "./logs/run_2025_03_13_14_59_28/model_checkpoints/epoch_500_torch_critic_model"
 
 if __name__ == "__main__":
     
@@ -52,13 +54,13 @@ if __name__ == "__main__":
     names_output_channel = ["Dev1/ao0", "Dev1/ao1"]  # ao0: reservoir; ao1: valves
     num_actions = 1
 
-    # names_input_channel = ["Dev1/ai0", "Dev1/ai1", "Dev1/ai2", "Dev1/ai3",
-    #                        "Dev1/ai4", "Dev1/ai5", "Dev1/ai6",  "Dev1/ai7", "Dev1/ai8"]  # ai0: volume flow; ai1 - ai8: tau
-    # num_states = 8
-
     names_input_channel = ["Dev1/ai0", "Dev1/ai1", "Dev1/ai2", "Dev1/ai3",
-                           "Dev1/ai4", "Dev1/ai5", "Dev1/ai6",  "Dev1/ai7"]  # ai0: volume flow; ai1 - ai7: tau
-    num_states = 7
+                            "Dev1/ai4", "Dev1/ai5", "Dev1/ai6",  "Dev1/ai7", "Dev1/ai8"]  # ai0: volume flow; ai1 - ai8: tau
+    num_states = 8
+
+    # names_input_channel = ["Dev1/ai0", "Dev1/ai1", "Dev1/ai2", "Dev1/ai3",
+    #                        "Dev1/ai4", "Dev1/ai5", "Dev1/ai6",  "Dev1/ai7"]  # ai0: volume flow; ai1 - ai7: tau
+    # num_states = 7
 
     ### Create log folder ###
     date = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
@@ -69,7 +71,7 @@ if __name__ == "__main__":
     fname_params = f'{log_dir}/{PARAMS_FILE}'
     create_file(fname_params, ['HIDDEN_SIZE', 'LEARNING_RATE', 'GAMMA', 
                                'GAE_LAMBDA', 'PPO_EPSILON_CLIP', 
-                               'CRITIC_DISCOUNT', 'ENTROPY_BETA', 'PPO_STEPS', 
+                               'ENTROPY_BETA', 'PPO_STEPS', 
                                'MINI_BATCH_SIZE', 'PPO_UPDATE_EPOCHS', 
                                'PPO_TRAIN_EPOCHS'])
     
@@ -90,8 +92,7 @@ if __name__ == "__main__":
     # Create log file for PPO Update Data
     fname_update = f'{log_dir}/{UPDATE_FILE}'
     create_file(fname_update, ["frame_idx", "train_epoch", "sum_loss_actor", 
-                               "sum_loss_critic", "sum_loss_total", 
-                               "sum_entropy"])
+                               "sum_loss_critic", "sum_entropy"])
     
     # Create log file for PPO Update extra Data (debugging info)
     if DEBUG:
@@ -100,14 +101,14 @@ if __name__ == "__main__":
                     ["frame_idx", "train_epoch", "update_epoch", "mini_batch", 
                      "update_mean_returns", "update_mean_advantages", 
                      "update_losses_actor", "update_losses_critic", 
-                     "update_losses_total", "update_entropies"])
+                     "update_losses_entropy", "update_entropy"])
     else:
         fname_update_extra = None
     
     ### Write used Parameters to file ###
     write_file(f'{log_dir}/{PARAMS_FILE}', 
                [f'{HIDDEN_SIZE}', f'{LEARNING_RATE}', f'{GAMMA}', 
-                f'{GAE_LAMBDA}', f'{EPSILON_CLIP}', f'{CRITIC_DISCOUNT}', 
+                f'{GAE_LAMBDA}', f'{EPSILON_CLIP}', 
                 f'{ENTROPY_BETA}', f'{PPO_STEPS}', f'{MINI_BATCH_SIZE}', 
                 f'{PPO_UPDATE_EPOCHS}', f'{PPO_TRAIN_EPOCHS}'])
     
@@ -117,28 +118,33 @@ if __name__ == "__main__":
     print(f'\nDevice: {device}\n')
     
     ### Prepare environment ###
-    env = WindTunnelEnv(num_states=num_states, num_actions=num_actions,
-                        output_channel=names_output_channel,
-                        input_channel=names_input_channel)
-    # env = TestEnv03(num_states=num_states, num_actions=num_actions)  # TEST
+    # env = WindTunnelEnv(num_states=num_states, num_actions=num_actions,
+    #                     output_channel=names_output_channel,
+    #                     input_channel=names_input_channel)
+    env = TestEnv03(num_states=num_states, num_actions=num_actions)  # TEST
 
-    ### Prepare Network ###
-    model = ActorCriticNetwork(num_inputs=num_states, num_outputs=num_actions, hidden_size=HIDDEN_SIZE).to(device)
-    print(model)
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    ### Prepare Networks ###
+    actor_model = ActorNetwork(num_inputs=num_states, num_outputs=num_actions, hidden_size=HIDDEN_SIZE).to(device)
+    print(f'Actor Model:\n\n{actor_model}\n')
+    actor_optimizer = optim.Adam(actor_model.parameters(), lr=LEARNING_RATE)
+    
+    critic_model = CriticNetwork(num_inputs=num_states, hidden_size=HIDDEN_SIZE).to(device)
+    print(f'Critic Model:\n\n{critic_model}\n')
+    critic_optimizer = optim.Adam(critic_model.parameters(), lr=LEARNING_RATE)
     
     ### Load model ###
     if LOAD_MODEL:
-        model.load_state_dict(torch.load(MODEL_LOAD_PATH))
-        print("\n##### Model loaded #####\n")
+        actor_model.load_state_dict(torch.load(MODEL_LOAD_PATH_ACTOR))
+        critic_model.load_state_dict(torch.load(MODEL_LOAD_PATH_CRITIC))
+        print("\n##### Models loaded #####\n")
     
-    policy_trainer = PPOTraining(env=env, device=device, model=model, 
-                                 optimizer=optimizer, 
+    policy_trainer = PPOTraining(env=env, device=device, actor_model=actor_model, critic_model=critic_model,
+                                 actor_optimizer=actor_optimizer, critic_optimizer= critic_optimizer,
                                  ppo_train_epochs=PPO_TRAIN_EPOCHS, ppo_steps=PPO_STEPS, 
                                  ppo_update_epochs=PPO_UPDATE_EPOCHS, gamma=GAMMA, 
                                  gae_lambda=GAE_LAMBDA, epsilon_clip=EPSILON_CLIP, 
                                  mini_batch_size=MINI_BATCH_SIZE, entropy_beta=ENTROPY_BETA,
-                                 critic_discount=CRITIC_DISCOUNT, save_interval=SAVE_INTERVAL,
+                                 save_interval=SAVE_INTERVAL,
                                  chkpnt_dir=models_dir, fname_batch=fname_batch, 
                                  fname_update=fname_update, 
                                  fname_update_extra=fname_update_extra, debug = DEBUG)

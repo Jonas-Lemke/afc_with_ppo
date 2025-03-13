@@ -10,9 +10,10 @@ from utils import write_file
 
 
 class PPOTraining:
-    def __init__(self, env, device, model, optimizer, ppo_train_epochs, ppo_steps, 
+    def __init__(self, env, device, actor_model, critic_model, actor_optimizer, 
+                 critic_optimizer, ppo_train_epochs, ppo_steps, 
                  ppo_update_epochs, gamma, gae_lambda, epsilon_clip, 
-                 mini_batch_size, entropy_beta, critic_discount, 
+                 mini_batch_size, entropy_beta, 
                  save_interval, chkpnt_dir, fname_batch, fname_update, 
                  fname_update_extra, debug):
         """
@@ -20,8 +21,11 @@ class PPOTraining:
         """
         self.env = env
         self.device = device
-        self.model = model
-        self.optimizer = optimizer
+
+        self.actor_model = actor_model
+        self.actor_optimizer = actor_optimizer
+        self.critic_model = critic_model
+        self.critic_optimizer = critic_optimizer
         
         self.ppo_train_epochs = ppo_train_epochs
         self.ppo_steps = ppo_steps
@@ -38,7 +42,6 @@ class PPOTraining:
         self.epsilon_clip = epsilon_clip
         self.mini_batch_size = mini_batch_size
         self.entropy_beta = entropy_beta
-        self.critic_discount = critic_discount
         
         self.chkpnt_dir = chkpnt_dir
         self.save_interval = save_interval
@@ -125,7 +128,6 @@ class PPOTraining:
         """
         sum_loss_actor = 0.0
         sum_loss_critic = 0.0
-        sum_loss_total = 0.0
         sum_entropy = 0.0
     
         for update_epoch in range(1, self.ppo_update_epochs + 1):
@@ -138,7 +140,9 @@ class PPOTraining:
             for mb_states, mb_actions, mb_old_log_probs, mb_returns, mb_advantages in self.ppo_iter(states, actions, act_log_probs, returns, advantages):
                 
                 # model prediction of dist and value for all states in mini-batch
-                mb_dists, mb_values = self.model(mb_states)
+                mb_dists = self.actor_model(mb_states)
+                mb_values = self.critic_model(mb_states)
+                # mb_dists, mb_values = self.model(mb_states)
                 
                 entropy = mb_dists.entropy().mean()
                 
@@ -153,19 +157,20 @@ class PPOTraining:
                 ### Calculate actor and critic losses ###
                 actor_loss  = - torch.min(surr1, surr2).mean()
                 critic_loss = (mb_returns - mb_values).pow(2).mean()
+                entropy_loss = - self.entropy_beta * entropy
                 
-                ### Calculate objective function ###
-                loss = self.critic_discount * critic_loss + actor_loss - self.entropy_beta * entropy
+                ### Backpropagation ### (old time for one NN ~0.004)
+                self.actor_optimizer.zero_grad()
+                (actor_loss + entropy_loss).backward()
+                self.actor_optimizer.step()
+                
+                self.critic_optimizer.zero_grad()
+                critic_loss.backward()
+                self.critic_optimizer.step()
 
-                ### Perform back propagation ### ~0.004
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
-                
                 ### Track statistics ###
                 sum_loss_actor += actor_loss
                 sum_loss_critic += critic_loss
-                sum_loss_total += loss
                 sum_entropy += entropy
                 
                 # Write extra statistics if DEBUG is True (debugging info)
@@ -174,7 +179,7 @@ class PPOTraining:
                                [frame_idx, train_epoch, update_epoch, mb_step, 
                                 mb_returns.mean().item(), 
                                 mb_advantages.mean().item(), actor_loss.item(),
-                                critic_loss.item(), loss.item(), 
+                                critic_loss.item(), entropy_loss.item(), 
                                 entropy.item()])
                 
                 mb_step += 1
@@ -184,7 +189,6 @@ class PPOTraining:
         ppo_update_data = [frame_idx, train_epoch, 
                            sum_loss_actor.item()/num_updates, 
                            sum_loss_critic.item()/num_updates, 
-                           sum_loss_total.item()/num_updates, 
                            sum_entropy.item()/num_updates]
     
         return ppo_update_data
@@ -211,18 +215,18 @@ class PPOTraining:
         for step in range(self.ppo_steps):
 
             step_start_time = time.perf_counter()  # for fixed time for step
-    
-            ### Get action and value prediction ### 0.0008 s (virtual env.)
+            
+
+            ### Get action and value prediction ### ~ ??? s (virtual env.)
             state = torch.FloatTensor(state).to(self.device)
-            dist, value = self.model(state)
+            dist = self.actor_model(state)
+            value = self.critic_model(state)
             action = dist.sample()
 
             # print(f'action: {action}')  # TEST
     
             ### Pass action to environment and obtain reward and next state ### ~ 0.0002 s (virtual env.)
-            # next_state, reward, _ = self.env.step(bool(action.item()))
             next_state, reward, _, next_vol_flow, next_tau = self.env.step(bool(action.item()))
-
 
             ### Get action-log-distribution ### ~ 0.0004 s (virtual env.)
             act_log_prob = dist.log_prob(action)
@@ -282,7 +286,9 @@ class PPOTraining:
 
             ### Calculate returns for the batch using GAE ###
             next_state = torch.FloatTensor(next_state).to(self.device) # convert state to torch tensor
-            _, next_value = self.model(next_state)  # get model value prediction
+            next_value = self.critic_model(next_state)  # get model value prediction
+
+            # _, next_value = self.model(next_state)  # get model value prediction
 
             gae_returns = self.compute_gae_returns(next_value, rewards, values)
             mc_returns = self.compute_mc_returns(rewards)  # monte carlo returns (just for debugging)
@@ -316,12 +322,10 @@ class PPOTraining:
             
             ### Write PPO Batch data to file ### ~ 0.005 s
             for step in range(self.ppo_steps):
+
                 frame_idx += 1
                 state_elements = [s.item() for s in states[step]]
                 action_elements = [a.item() for a in actions[step]]
-
-                # print(f'vol_flow[step]: {vol_flows[step]}')  # TEST
-                # print(f'taus[step]: {taus[step]}')  # TEST
 
                 ppo_batch_data = [frame_idx, train_epoch, step + 1, 
                                   epoch_total_reward, gae_returns[step].item(), 
@@ -343,10 +347,11 @@ class PPOTraining:
             ### Write PPO Update data to file ### ~ 0.002 s
             write_file(self.fname_update, ppo_update_data)
             
-            ### Save model ###
+            ### Save models ###
             if train_epoch % self.save_interval == 0:
-                torch.save(self.model.state_dict(), f'{self.chkpnt_dir}/epoch_{train_epoch}_torch_model')
-                print("\n##### Model saved #####\n")
+                torch.save(self.actor_model.state_dict(), f'{self.chkpnt_dir}/epoch_{train_epoch}_torch_actor_model')
+                torch.save(self.critic_model.state_dict(), f'{self.chkpnt_dir}/epoch_{train_epoch}_torch_critic_model')
+                print("\n##### Models saved #####\n")
             
-            print(f'\nTraining Epoch: {train_epoch} \nTotal Reward of current Batch: {sum(rewards).item()} \nBatchsize: {self.ppo_steps}\nSum loss actor: {ppo_update_data[2]}\nSum loss critc: {ppo_update_data[3]}\nSum loss total: {ppo_update_data[4]}\nSum entropy: {ppo_update_data[5]}\n')
+            print(f'\nTraining Epoch: {train_epoch} \nTotal Reward of current Batch: {sum(rewards).item()} \nBatchsize: {self.ppo_steps}\nSum loss actor: {ppo_update_data[2]}\nSum loss critc: {ppo_update_data[3]}\nSum entropy: {ppo_update_data[4]}\n')
             
