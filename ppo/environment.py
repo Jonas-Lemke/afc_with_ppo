@@ -23,31 +23,28 @@ class WindTunnelEnv:
 
     @staticmethod
     def calc_state(tau):
-        """Helper function to turn measured tau into an state"""
+        """Helper function to turn measured tau into state"""
 
-        # # # State: continuous (array = clipped tau)
-        # state = np.clip(tau, a_min=-5, a_max=5)
+        # State: continuous (array = clipped tau)
+        state = np.clip(tau, a_min=-5, a_max=5)
 
-        # State: discrete (array = pos. tau = 1, tau ~ 0 = 0 , neg. tau = -1)
-        # conditions_for_state = [tau < -0.3, (tau >= -0.3) & (tau <= 0.3), tau > 0.3]
-        # values_for_state = [-1, 0, 1]
-        conditions_for_state = [tau < 0.0, tau > 0.0]
-        values_for_state = [-1, 1]
-        state = np.select(conditions_for_state, values_for_state)
+        # # State: discrete (array = pos. tau = 1, tau ~ 0 = 0 , neg. tau = -1)
+        # # conditions_for_state = [tau < -0.3, (tau >= -0.3) & (tau <= 0.3), tau > 0.3]
+        # # values_for_state = [-1, 0, 1]
+        # conditions_for_state = [tau < 0.0, tau > 0.0]
+        # values_for_state = [-1, 1]
+        # state = np.select(conditions_for_state, values_for_state)
         return state
 
     @staticmethod
     def calc_reward(tau):
-        """Helper function to turn measured tau into an reward"""
+        """Helper function to turn measured tau into reward"""
 
-        conditions_for_reward = [tau < 0.0, tau > 0.0]
-        values_for_reward = [-1, 1]
+        conditions_for_reward = [tau < -0.3, (tau >= -0.3) & (tau <= 0.3), tau > 0.3]
+        values_for_reward = [-1, 0, 1]
         reward_array = np.select(conditions_for_reward, values_for_reward)
 
-        # weights = np.array([1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4])
-        # weights = np.array([1.0, 1.75, 2.50, 3.25, 4.00, 4.75, 5.50])
-
-        weights = np.array([1.0, 1.5, 2.25, 2*3.5, 2*5.0, 2*7.5, 2*10])
+        weights = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
 
         weights_normalized = weights/np.sum(weights)
         weighted_reward_array = reward_array * weights_normalized

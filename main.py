@@ -4,6 +4,9 @@ This file contains the main entry point of the project where parameters can be s
 
 
 import datetime
+import time
+import os
+import psutil
 import torch
 from torch import optim
 # from torch.utils.tensorboard import SummaryWriter
@@ -49,6 +52,18 @@ MODEL_LOAD_PATH_ACTOR   = "./logs/run_2025_03_13_14_59_28/model_checkpoints/epoc
 MODEL_LOAD_PATH_CRITIC  = "./logs/run_2025_03_13_14_59_28/model_checkpoints/epoch_500_torch_critic_model"
 
 if __name__ == "__main__":
+    
+    # ### Increas codes priority (admin/root privileges needed) ###
+    pid = os.getpid()  # get process ID
+    print(f'\nProcess ID: {pid}\n')
+    # process = psutil.Process(pid)  # get current process
+    
+    # if os.name == 'nt':  # Windows
+    #     process.nice(psutil.HIGH_PRIORITY_CLASS)
+    # else:  # Linux/Mac
+    #     process.nice(-10)
+    
+    time.sleep(10)  # time to manually increase prio of process
     
     ### NI USB-6281 I/O channel names ###
     names_output_channel = ["Dev1/ao0", "Dev1/ao1"]  # ao0: reservoir; ao1: valves
