@@ -12,10 +12,8 @@ from utils import write_file
 class PPOTraining:
     def __init__(self, env, device, actor_model, critic_model, actor_optimizer, 
                  critic_optimizer, ppo_train_epochs, ppo_steps, 
-                 ppo_update_epochs, gamma, gae_lambda, epsilon_clip, 
-                 mini_batch_size, entropy_beta, 
-                 save_interval, chkpnt_dir, fname_batch, fname_update, 
-                 fname_update_extra, debug):
+                 ppo_update_epochs, gamma, gae_lambda, epsilon_clip, entropy_beta, 
+                 save_interval, chkpnt_dir, fname_batch, fname_update):
         """
         Initializes PPOTraining object.
         """
@@ -40,7 +38,6 @@ class PPOTraining:
         self.gae_lambda = gae_lambda
         
         self.epsilon_clip = epsilon_clip
-        self.mini_batch_size = mini_batch_size
         self.entropy_beta = entropy_beta
         
         self.chkpnt_dir = chkpnt_dir
@@ -48,10 +45,7 @@ class PPOTraining:
         
         self.fname_batch = fname_batch
         self.fname_update = fname_update
-        self.fname_update_extra = fname_update_extra
         
-        self.debug = debug
-    
     @staticmethod
     def normalize(x):
         """
@@ -104,99 +98,61 @@ class PPOTraining:
             returns.insert(0, discounted_reward)
         return returns
 
-    def ppo_iter(self, states, actions, act_log_probs, returns, advantage):
-        """
-        Helper function that divides the collected batches
-        into smaller mini-batches for optimization.
-        """
-        
-        # function takes alot of time -> see if it can be optimized
-        
-        batch_size = states.size(0)
-        # generates random mini-batches until full batch is covered
-        for _ in range(batch_size // self.mini_batch_size):
-            rand_ids = np.random.randint(0, batch_size, self.mini_batch_size)
-            yield states[rand_ids, :], actions[rand_ids, :], act_log_probs[rand_ids, :], returns[rand_ids, :], advantage[rand_ids, :]
-    
     def ppo_update(self, frame_idx, train_epoch, states, actions, act_log_probs, returns, advantages):
         """
         Function to update the policy and value network.
-            1. sample enough random mini-batches to cover all batch data
-            2. pass state into network, obtain action, value, entropy and new_log_probs
-            3. calculate surrogate policy loss and mean squared error value loss
-            4. backpropagate the total loss through the network using SGD
+            1. pass state into networks, obtain predicted actions, values, entropy and new_log_probs
+            2. calculate surrogate policy loss and mean squared error value loss
+            3. backpropagate the losses through networks using Stochastic Gradient Descent (SGD)
         """
-        sum_loss_actor = 0.0
-        sum_loss_critic = 0.0
-        sum_entropy = 0.0
-    
+        
+        epoch_numbers = []
+        epoch_actor_losses = []
+        epoch_critic_losses = []
+        epoch_entropies = []
+        
         for update_epoch in range(1, self.ppo_update_epochs + 1):
             
             # print(f'\n##### Update Epoch: {update_epoch} #####\n')
-                    
-            mb_step = 1  # mini-batch step
             
-            # grabs random mini-batches several times until we have covered all data
-            for mb_states, mb_actions, mb_old_log_probs, mb_returns, mb_advantages in self.ppo_iter(states, actions, act_log_probs, returns, advantages):
-                
-                # model prediction of dist and value for all states in mini-batch
-                mb_dists = self.actor_model(mb_states)
-                mb_values = self.critic_model(mb_states)
-                # mb_dists, mb_values = self.model(mb_states)
-                
-                entropy = mb_dists.entropy().mean()
-                
-                mb_new_log_probs = mb_dists.log_prob(mb_actions)
-                
-                ### Calculate surrogate losses ###
-                ratio = (mb_new_log_probs - mb_old_log_probs).exp()
-                
-                surr1 = ratio * mb_advantages
-                surr2 = torch.clamp(ratio, 1.0 - self.epsilon_clip, 1.0 + self.epsilon_clip) * mb_advantages
-    
-                ### Calculate actor and critic losses ###
-                actor_loss  = - torch.min(surr1, surr2).mean()
-                critic_loss = (mb_returns - mb_values).pow(2).mean()
-                entropy_loss = - self.entropy_beta * entropy
-                
-                ### Backpropagation ### (old time for one NN ~0.004)
-                self.actor_optimizer.zero_grad()
-                (actor_loss + entropy_loss).backward()
-                self.actor_optimizer.step()
-                
-                self.critic_optimizer.zero_grad()
-                critic_loss.backward()
-                self.critic_optimizer.step()
+            # model prediction of dist and value for all states in batch
+            dists = self.actor_model(states)
+            values = self.critic_model(states)
+            
+            entropy = dists.entropy().mean()
+            new_log_probs = dists.log_prob(actions)
+            
+            ### Calculate surrogate losses ###
+            ratio = (new_log_probs - act_log_probs).exp()
+            
+            surr1 = ratio * advantages
+            surr2 = torch.clamp(ratio, 1.0 - self.epsilon_clip, 1.0 + self.epsilon_clip) * advantages
 
-                ### Track statistics ###
-                sum_loss_actor += actor_loss
-                sum_loss_critic += critic_loss
-                sum_entropy += entropy
-                
-                # Write extra statistics if DEBUG is True (debugging info)
-                if self.debug:
-                    write_file(self.fname_update_extra, 
-                               [frame_idx, train_epoch, update_epoch, mb_step, 
-                                mb_returns.mean().item(), 
-                                mb_advantages.mean().item(), actor_loss.item(),
-                                critic_loss.item(), entropy_loss.item(), 
-                                entropy.item()])
-                
-                mb_step += 1
-        
-        num_updates = self.ppo_update_epochs * (self.ppo_steps/self.mini_batch_size)
-        
-        ppo_update_data = [frame_idx, train_epoch, 
-                           sum_loss_actor.item()/num_updates, 
-                           sum_loss_critic.item()/num_updates, 
-                           sum_entropy.item()/num_updates]
-    
-        return ppo_update_data
+            ### Calculate actor and critic losses ###
+            actor_loss  = - torch.min(surr1, surr2).mean()
+            critic_loss = (returns - values).pow(2).mean()
+            entropy_loss = - self.entropy_beta * entropy
+            
+            ### Backpropagation ### (old time for one NN ~0.004)
+            self.actor_optimizer.zero_grad()
+            (actor_loss + entropy_loss).backward()
+            self.actor_optimizer.step()
+            
+            self.critic_optimizer.zero_grad()
+            critic_loss.backward()
+            self.critic_optimizer.step()
+
+            ### Store Data ###
+            epoch_numbers.append(update_epoch)
+            epoch_actor_losses.append(actor_loss.item())
+            epoch_critic_losses.append(critic_loss.item())
+            epoch_entropies.append(entropy.item())
+
+        return epoch_numbers, epoch_actor_losses, epoch_critic_losses, epoch_entropies
 
     def collect_batch(self):
         """
-        Collects a batch of PPO_STEPS (should be multiple of MINI_BATCH_SIZE) 
-        by acting in the environment with current policy
+        Collects a batch of PPO_STEPS by acting in the environment with current policy
         """
         ### Reset the environment ###
         # state = self.env.reset()
@@ -237,7 +193,7 @@ class PPOTraining:
             rewards.append(torch.FloatTensor(reward).unsqueeze(1).to(self.device))
             states.append(state)
             actions.append(action)
-            dist_probs.append(dist.probs)  # (debugging info)
+            dist_probs.append(dist.probs)  # (for stats)
             vol_flows.append(vol_flow)
             taus.append(tau)
 
@@ -288,10 +244,8 @@ class PPOTraining:
             next_state = torch.FloatTensor(next_state).to(self.device) # convert state to torch tensor
             next_value = self.critic_model(next_state)  # get model value prediction
 
-            # _, next_value = self.model(next_state)  # get model value prediction
-
             gae_returns = self.compute_gae_returns(next_value, rewards, values)
-            mc_returns = self.compute_mc_returns(rewards)  # monte carlo returns (just for debugging)
+            mc_returns = self.compute_mc_returns(rewards)  # monte carlo returns (just for stats)
 
             ### Detach and concatenat tensor lists ###
             rewards = torch.cat(rewards).detach()
@@ -308,15 +262,15 @@ class PPOTraining:
             gae_advantages = gae_returns - values
             gae_advantages = self.normalize(gae_advantages)
             
-            mc_advantages = mc_returns - values  # monte carlo advantage (debugging info)
+            mc_advantages = mc_returns - values  # monte carlo advantage (just for stats)
             mc_advantages = self.normalize(mc_advantages)
 
             # print(f'actions: {actions}')
             
-            # Calculate total reward of current batch (debugging info)
+            ### Calculate total reward of current batch ### (for stats)
             epoch_total_reward = sum(rewards).item()
             
-            # Calculate gamma (debugging info)
+            ### Calculate gamma ### (for stats)
             sensor_gamma = self.calc_batch_gamma(taus)
             epoch_mean_gamma = np.mean(sensor_gamma)
             
@@ -340,12 +294,14 @@ class PPOTraining:
                 write_file(self.fname_batch, ppo_batch_data)
 
             ### Optimizing the policy and value network ###
-            ppo_update_data = self.ppo_update(frame_idx, train_epoch, states, 
+            update_numbers, update_actor_losses, update_critic_losses, update_entropies = self.ppo_update(frame_idx, train_epoch, states, 
                                               actions, act_log_probs, 
                                               gae_returns, gae_advantages)
             
-            ### Write PPO Update data to file ### ~ 0.002 s
-            write_file(self.fname_update, ppo_update_data)
+            ### Write PPO Update data to file ###
+            for epoch in range(len(update_numbers)):
+                ppo_update_data = [frame_idx, train_epoch, update_numbers[epoch], update_actor_losses[epoch], update_critic_losses[epoch], update_entropies[epoch]]
+                write_file(self.fname_update, ppo_update_data)
             
             ### Save models ###
             if train_epoch % self.save_interval == 0:
@@ -353,5 +309,5 @@ class PPOTraining:
                 torch.save(self.critic_model.state_dict(), f'{self.chkpnt_dir}/epoch_{train_epoch}_torch_critic_model')
                 print("\n##### Models saved #####\n")
             
-            print(f'\nTraining Epoch: {train_epoch} \nTotal Reward of current Batch: {sum(rewards).item()} \nBatchsize: {self.ppo_steps}\nSum loss actor: {ppo_update_data[2]}\nSum loss critc: {ppo_update_data[3]}\nSum entropy: {ppo_update_data[4]}\n')
+            print(f'\nTraining Epoch: {train_epoch} \nTotal Reward of current Batch: {sum(rewards).item()} \nBatchsize: {self.ppo_steps}\nEpoch mean actor losses: {np.mean(update_actor_losses)}\nEpoch mean critic losses: {np.mean(update_critic_losses)}\nEpoch mean entropy: {np.mean(update_entropies)}\n')
             

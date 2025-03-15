@@ -35,15 +35,12 @@ GAE_LAMBDA          = 0.95      # Smoothing factor for GAE (high = more accuracy
 EPSILON_CLIP        = 0.2       # Used to clip the ratio between new and old policy
 ENTROPY_BETA        = 0.001      # Amount of importance given to the entropy bonus (low = stronger exploitation; high = stronger exploration)
 PPO_STEPS           = 32        # Number of transitions sampled for each training iteration = batch_size (should be multiple of MINI_BATCH_SIZE)
-MINI_BATCH_SIZE     = 4         # Number of samples which are randomly selected from total amount of stored data
-PPO_UPDATE_EPOCHS   = 4         # Number of pass over entire batch of training data
+PPO_UPDATE_EPOCHS   = 20         # Number of pass over entire batch of training data
 PPO_TRAIN_EPOCHS    = 5000    # Limit epochs for the PPO training loop
 SAVE_INTERVAL       = 50        # interval for model checkpoints
 
-DEBUG               = True      # If True extra statistics are written during ppo update
 LOAD_MODEL          = False     # Select to load an existing torch model
 
-DEBUG_FILE          = "extra_update_data.txt"
 PARAMS_FILE         = "parameter.txt"
 BATCH_FILE          = "batch_data.txt"
 UPDATE_FILE         = "update_data.txt"
@@ -63,7 +60,7 @@ if __name__ == "__main__":
     # else:  # Linux/Mac
     #     process.nice(-10)
     
-    time.sleep(10)  # time to manually increase prio of process
+    # time.sleep(10)  # time to manually increase prio of process
     
     ### NI USB-6281 I/O channel names ###
     names_output_channel = ["Dev1/ao0", "Dev1/ao1"]  # ao0: reservoir; ao1: valves
@@ -87,8 +84,7 @@ if __name__ == "__main__":
     create_file(fname_params, ['HIDDEN_SIZE', 'LEARNING_RATE', 'GAMMA', 
                                'GAE_LAMBDA', 'PPO_EPSILON_CLIP', 
                                'ENTROPY_BETA', 'PPO_STEPS', 
-                               'MINI_BATCH_SIZE', 'PPO_UPDATE_EPOCHS', 
-                               'PPO_TRAIN_EPOCHS'])
+                               'PPO_UPDATE_EPOCHS', 'PPO_TRAIN_EPOCHS'])
     
     # Create log file for PPO Batch Data
     fname_batch = f'{log_dir}/{BATCH_FILE}'
@@ -106,25 +102,13 @@ if __name__ == "__main__":
     
     # Create log file for PPO Update Data
     fname_update = f'{log_dir}/{UPDATE_FILE}'
-    create_file(fname_update, ["frame_idx", "train_epoch", "sum_loss_actor", 
-                               "sum_loss_critic", "sum_entropy"])
-    
-    # Create log file for PPO Update extra Data (debugging info)
-    if DEBUG:
-        fname_update_extra = f'{log_dir}/{DEBUG_FILE}'
-        create_file(fname_update_extra, 
-                    ["frame_idx", "train_epoch", "update_epoch", "mini_batch", 
-                     "update_mean_returns", "update_mean_advantages", 
-                     "update_losses_actor", "update_losses_critic", 
-                     "update_losses_entropy", "update_entropy"])
-    else:
-        fname_update_extra = None
+    create_file(fname_update, ["frame_idx", "train_epoch", "update_epoch", "actor_loss", "critic_loss", "mean_entropy"])
     
     ### Write used Parameters to file ###
     write_file(f'{log_dir}/{PARAMS_FILE}', 
                [f'{HIDDEN_SIZE}', f'{LEARNING_RATE}', f'{GAMMA}', 
                 f'{GAE_LAMBDA}', f'{EPSILON_CLIP}', 
-                f'{ENTROPY_BETA}', f'{PPO_STEPS}', f'{MINI_BATCH_SIZE}', 
+                f'{ENTROPY_BETA}', f'{PPO_STEPS}', 
                 f'{PPO_UPDATE_EPOCHS}', f'{PPO_TRAIN_EPOCHS}'])
     
     ### Autodetect CUDA ###
@@ -136,7 +120,10 @@ if __name__ == "__main__":
     # env = WindTunnelEnv(num_states=num_states, num_actions=num_actions,
     #                     output_channel=names_output_channel,
     #                     input_channel=names_input_channel)
-    env = TestEnv03(num_states=num_states, num_actions=num_actions)  # TEST
+    
+    env = TestEnv03(num_states=num_states, num_actions=num_actions, 
+                    output_channel=names_output_channel, 
+                    input_channel=names_input_channel)  # TEST
 
     ### Prepare Networks ###
     actor_model = ActorNetwork(num_inputs=num_states, num_outputs=num_actions, hidden_size=HIDDEN_SIZE).to(device)
@@ -158,11 +145,10 @@ if __name__ == "__main__":
                                  ppo_train_epochs=PPO_TRAIN_EPOCHS, ppo_steps=PPO_STEPS, 
                                  ppo_update_epochs=PPO_UPDATE_EPOCHS, gamma=GAMMA, 
                                  gae_lambda=GAE_LAMBDA, epsilon_clip=EPSILON_CLIP, 
-                                 mini_batch_size=MINI_BATCH_SIZE, entropy_beta=ENTROPY_BETA,
+                                 entropy_beta=ENTROPY_BETA,
                                  save_interval=SAVE_INTERVAL,
                                  chkpnt_dir=models_dir, fname_batch=fname_batch, 
-                                 fname_update=fname_update, 
-                                 fname_update_extra=fname_update_extra, debug = DEBUG)
+                                 fname_update=fname_update)
     
     ### Start PPO training ###
     
