@@ -18,50 +18,98 @@ class WindTunnelEnv:
 
         self.sensors = sm.InputOutputManager(output_channel=self.output_channel, input_channel=self.input_channel)  # Initialize sensors
 
-        self.sensors.close_valve()
+        # self.sensors.close_valve()
+        self.sensors.open_valve()
+        time.sleep(1.2)  # ~ update and write time
+
         self.sensors.set_pressure(volt=1)
+        # self.sensors.set_pressure(volt=0.5)
 
     @staticmethod
     def calc_state(tau):
         """Helper function to turn measured tau into state"""
 
         # State: continuous (array = clipped tau)
-        state = np.clip(tau, a_min=-5, a_max=5)
 
-        # # State: discrete (array = pos. tau = 1, tau ~ 0 = 0 , neg. tau = -1)
-        # # conditions_for_state = [tau < -0.3, (tau >= -0.3) & (tau <= 0.3), tau > 0.3]
+        tau_copy = np.copy(tau)
+
+        state = np.clip(tau_copy, a_min=-4, a_max=4)
+
+        # state = np.round(state, decimals=3)
+
+        # # # State: discrete
+        # # conditions_for_state = [tau < -0.1, (tau >= -0.1) & (tau <= 0.1), tau > 0.1]
         # # values_for_state = [-1, 0, 1]
-        # conditions_for_state = [tau < 0.0, tau > 0.0]
-        # values_for_state = [-1, 1]
+        #
+        # conditions_for_state = [tau < -1.00, (tau >= -1.00) & (tau < -0.25), (tau >= -0.25) & (tau <= -0.05), (tau > -0.05) & (tau <= 0.05), (tau > 0.05) & (tau <= 0.25), (tau > 0.25) & (tau <= 1.00), tau > 1.00]
+        # values_for_state = [-3, -2, -1, 0, 1, 2, 3]
+        #
         # state = np.select(conditions_for_state, values_for_state)
+
         return state
 
     @staticmethod
     def calc_reward(tau):
         """Helper function to turn measured tau into reward"""
 
-        conditions_for_reward = [tau < -0.3, (tau >= -0.3) & (tau <= 0.3), tau > 0.3]
-        values_for_reward = [-1, 0, 1]
+        tau_copy = np.copy(tau)
+
+        conditions_for_reward = [tau_copy < 0.0, tau_copy >= 0.0]
+        values_for_reward = [-1, 1]
         reward_array = np.select(conditions_for_reward, values_for_reward)
 
-        weights = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
 
-        weights_normalized = weights/np.sum(weights)
-        weighted_reward_array = reward_array * weights_normalized
+        # ### with weigths ###
+        # # weights = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
+        # weights = np.array([82, 122, 162, 202, 242, 282, 386, 426])
+        # # weights = np.array([2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
+        #
+        # weights_normalized = weights/np.sum(weights)
+        # weighted_reward_array = reward_array * weights_normalized
 
-        # weighted_reward_array = reward_array * [1/7]  # -> keine gewichtung
+        # ### w/o weights ###
+        # weighted_reward_array = reward_array * [1/8]
 
+        weighted_reward_array = reward_array
+
+        ### reward ###
         reward = np.array(weighted_reward_array.sum()).reshape(1)
+        
         return reward
+
+    def reattach_flow(self):
+        # not correct yet
+        self.sensors.close_valve()
+        time.sleep(0.1)
+        for i in range(5):
+            self.sensors.close_valve()
+            time.sleep(0.009)
+            self.sensors.open_valve()
+            time.sleep(0.0001)
+            self.sensors.close_valve()
+            time.sleep(0.001)
+
 
     def reset(self):
         """Called to initiate a new episode. Resets the environment."""
 
-        self.sensors.close_valve()
-        # self.sensors.set_pressure(volt=2)  # prob. not needed
-        
         ### Wait until last pulse from last batch passed all sensors ###
-        time.sleep(0.025)  # 20 ms for pulse to pass sensors
+        # time.sleep(0.2)  # 20 ms for pulse to pass sensors
+
+        # self.sensors.close_valve()
+        self.sensors.open_valve()
+        time.sleep(0.2)
+
+        for i in range(100):
+            self.sensors.close_valve()
+            time.sleep(0.050)
+            self.sensors.open_valve()
+            time.sleep(0.005)
+
+        # time.sleep(0.005*1024*0.7)
+
+        ### Wait until last pulse from last batch passed all sensors ###
+        # time.sleep(0.2)  # 20 ms for pulse to pass sensors
 
         ### Measure volume flow and tau ###
         vol_flow, measured_tau = self.sensors.measure_vol_flow_and_tau()
@@ -86,8 +134,7 @@ class WindTunnelEnv:
         else:
             self.sensors.close_valve()
 
-        # ### Measure tau ###
-        # tau = np.array(self.sensors.measure_tau()).reshape(1, self.num_states)
+        # time.sleep(0.005)  # TEST 10 ms
 
         ### Measure volume flow and tau ###
         vol_flow, measured_tau = self.sensors.measure_vol_flow_and_tau()
