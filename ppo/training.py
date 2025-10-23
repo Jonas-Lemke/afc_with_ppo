@@ -192,8 +192,6 @@ class PPOTraining:
             dist = self.actor_model(state)
             value = self.critic_model(state)
             action = dist.sample()
-
-            # print(f'action: {action}')  # TEST
     
             ### Pass action to environment and obtain reward and next state ### ~ 0.0002 s (virtual env.)
             next_state, reward, _, next_vol_flow, next_tau = self.env.step(bool(action.item()))
@@ -215,8 +213,6 @@ class PPOTraining:
             tau = next_tau
 
             state = next_state
-
-            # print(f'time of step: {time.perf_counter() - step_start_time}')  # TEST
 
             ### Ensure step takes at least 0.005 s ###
             while(time.perf_counter() - step_start_time) < 0.005:
@@ -342,8 +338,6 @@ class PPOTraining:
 
             gae_returns = self.compute_gae_returns(next_value, rewards, values)
             mc_returns = self.compute_mc_returns(rewards)  # monte carlo returns (just for stats)
-            # print(f'next rewards: {next_rewards}')  # TEST own returns
-            # print(f'values: {values}')  # TEST own returns
             own_returns = self.compute_own_returns(rewards, next_rewards)
 
             ### Detach and concatenat tensor lists ###
@@ -354,11 +348,7 @@ class PPOTraining:
             actions = torch.cat(actions)
             gae_returns = torch.cat(gae_returns).detach()
             mc_returns = torch.cat(mc_returns).detach()
-            # print(f'own returns before: {own_returns}')  # TEST own returns
-            # print(f'values before: {values}')  # TEST own returns
             own_returns = torch.cat(own_returns).detach()
-            # print(f'own returns after: {own_returns}')  # TEST own returns
-            # print(f'values after: {values}')  # TEST own returns
             dist_probs = torch.cat(dist_probs).detach()
 
             ### Calculate advantage for the batch ###

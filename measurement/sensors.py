@@ -68,18 +68,10 @@ class InputOutputManager:
     def tau_cal(self, volt_measured):
         """Helper function to convert  measured voltage (V) into wall shear stress"""
         list_tau = []
-        # print(f'measured voltage: {volt_measured}')  # TEST
         for num_sensor, volt_sensor in zip(self.calib.used_sensors, volt_measured):
-            # print(f'num_sensor: {num_sensor}')  # TEST
-            # print(f'test volt_sensor: {volt_sensor}')  # TEST
             f = self.calib.functions[num_sensor]
             offset = self.calib.offset_volt_channel[num_sensor]
-            # print(f'offset: {offset}')  # TEST
-            # print(f'measured voltage - offset: {volt_sensor-offset}')  # TEST
-            # print(f'function: {f}')  # TEST
-            # print(f'function (0.05): {f(0.05)}')  # TEST
             tau = f(volt_sensor - offset)
-            # print(f'calculated tau: {tau}')  # TEST
             list_tau.append(tau)
         return list_tau
 
@@ -96,7 +88,6 @@ class InputOutputManager:
         """Measures current volume flow and wall shear stress"""
         # measure voltage
         volt = self.input_task.read_single_voltage()
-        # print(f'\nvoltages: {volt}\n')  # TEST
         # separate voltage array
         volt_vol_flow = volt[0]  # ai0
         volt_tau = volt[1:]  # ai1 - ai8

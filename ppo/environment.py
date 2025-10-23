@@ -77,19 +77,6 @@ class WindTunnelEnv:
         
         return reward
 
-    def reattach_flow(self):
-        # not correct yet
-        self.sensors.close_valve()
-        time.sleep(0.1)
-        for i in range(5):
-            self.sensors.close_valve()
-            time.sleep(0.009)
-            self.sensors.open_valve()
-            time.sleep(0.0001)
-            self.sensors.close_valve()
-            time.sleep(0.001)
-
-
     def reset(self):
         """Called to initiate a new episode. Resets the environment."""
 
@@ -99,17 +86,6 @@ class WindTunnelEnv:
         # self.sensors.close_valve()
         self.sensors.open_valve()
         time.sleep(0.2)
-
-        for i in range(100):
-            self.sensors.close_valve()
-            time.sleep(0.050)
-            self.sensors.open_valve()
-            time.sleep(0.005)
-
-        # time.sleep(0.005*1024*0.7)
-
-        ### Wait until last pulse from last batch passed all sensors ###
-        # time.sleep(0.2)  # 20 ms for pulse to pass sensors
 
         ### Measure volume flow and tau ###
         vol_flow, measured_tau = self.sensors.measure_vol_flow_and_tau()
@@ -133,8 +109,6 @@ class WindTunnelEnv:
             self.sensors.open_valve()
         else:
             self.sensors.close_valve()
-
-        # time.sleep(0.005)  # TEST 10 ms
 
         ### Measure volume flow and tau ###
         vol_flow, measured_tau = self.sensors.measure_vol_flow_and_tau()

@@ -9,9 +9,7 @@ import os
 import psutil
 import torch
 from torch import optim
-# from torch.utils.tensorboard import SummaryWriter
 
-# from ppo.network import ActorCriticNetwork
 from ppo.network import ActorNetwork
 from ppo.network import CriticNetwork
 from ppo.environment import WindTunnelEnv
@@ -21,10 +19,6 @@ from utils import mkdir
 from utils import create_file
 from utils import write_file
 
-# from tests.test_environments.test_env_01 import TestEnv01  # environment to test ppo implementation
-# from tests.test_environments.test_env_02 import TestEnv02  # environment to test ppo implementation
-from tests.test_environments.test_env_03 import TestEnv03  # environment to test ppo implementation
-# from tests.test_environments.test_env_04 import TestEnv04  # environment to test ppo implementation
 
 ### Parameter Configuration ###
 
@@ -133,10 +127,6 @@ if __name__ == "__main__":
                         output_channel=names_output_channel,
                         input_channel=names_input_channel)
     
-    # env = TestEnv03(num_states=num_states, num_actions=num_actions,
-    #                 output_channel=names_output_channel,
-    #                 input_channel=names_input_channel)  # TEST
-
     ### Prepare Networks ###
     actor_model = ActorNetwork(num_inputs=num_states, num_outputs=num_actions, hidden_size=HIDDEN_SIZE).to(device)
     print(f'Actor Model:\n\n{actor_model}\n')

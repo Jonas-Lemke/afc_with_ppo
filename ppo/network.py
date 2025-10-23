@@ -27,13 +27,6 @@ class ActorNetwork(nn.Module):
     def forward(self, state):
         """Runs a forward pass on the NN"""
         logit = self.actor(state)
-        
-        # # add noise for exploration
-        # logit += 0.5 * torch.randn_like(logit)
-        
-        # # clip to prevent fully determenistic logits (e.g. always 0 or 1)
-        # logit = torch.clamp(logit, -10, 10)
-
         prob = torch.sigmoid(logit)
         dist = Bernoulli(prob)  # p = P(True); 1-p = P(False)
         
